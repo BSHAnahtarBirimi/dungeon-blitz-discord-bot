@@ -448,12 +448,13 @@ mini.useCommand({
         .setRequired(true),
     ),
   handler: async (interaction: CommandInteraction) => {
-    if (!isAdministrator(interaction)) {
+  /*  if (!isAdministrator(interaction)) {
       return interaction.reply({
         content: "Administrator permission is required.",
         flags: 64,
       });
     }
+    */
 
     const walletId = interaction.options.getString("player", true)!;
     const operation = interaction.options.getString("operation", true);
