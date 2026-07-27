@@ -422,7 +422,6 @@ mini.useCommand({
   data: new CommandBuilder()
     .setName("idols")
     .setDescription("Manually add or subtract a player's Mammoth Idols")
-    .setDefaultMemberPermissions(8n)
     .setDMPermission(false)
     .addStringOption((option) =>
       option
