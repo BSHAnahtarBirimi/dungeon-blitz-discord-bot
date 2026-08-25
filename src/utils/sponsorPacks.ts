@@ -16,6 +16,8 @@ export type SponsorPack = {
 	emoji: string;
 	color: number;
 	items: string[];
+	/** Banner image displayed in the pack shop. */
+	imageUrl: string;
 	/** When set, only members with this Discord role can claim the pack. */
 	requiredRoleId?: string;
 };
@@ -29,6 +31,8 @@ export const SPONSOR_PACKS: SponsorPack[] = [
 		emoji: "🐴",
 		color: 0xf1f1f1,
 		items: ["1 random non-exclusive mount", "10,000 golds"],
+		imageUrl:
+			"https://media.discordapp.net/attachments/1533512926474797126/1533571335576485928/Sponsor.png?ex=6a8dfa1a&is=6a8ca89a&hm=eb550755829f0edd7e8733ecbe54f2641c092eaca10c8f791d4152a6a2ff6c4c&=&format=webp&quality=lossless&width=2048&height=689",
 		requiredRoleId: SPONSOR_ROLE_ID,
 	},
 	{
@@ -43,6 +47,8 @@ export const SPONSOR_PACKS: SponsorPack[] = [
 			"1 legendary dye",
 			"25,000 golds",
 		],
+		imageUrl:
+			"https://media.discordapp.net/attachments/1533512926474797126/1533571343813971969/Supporter.png?ex=6a8dfa1c&is=6a8ca89c&hm=d5c29eadd2d31d29734c60a8e6bc49ef5f27e14413faa1f1ae637939659db188&=&format=webp&quality=lossless&width=2048&height=689",
 	},
 	{
 		id: "adventurer",
@@ -58,6 +64,8 @@ export const SPONSOR_PACKS: SponsorPack[] = [
 			"2 legendary dyes",
 			"2 EXP potions",
 		],
+		imageUrl:
+			"https://media.discordapp.net/attachments/1533512926474797126/1533571352857149491/Adventurer.png?ex=6a8dfa1e&is=6a8ca89e&hm=8c8b8a075a04ef0bd2e527c16912c755ee1daf2abacd98b247ead9b4b8b6079e&=&format=webp&quality=lossless&width=2048&height=689",
 	},
 	{
 		id: "hero",
@@ -77,6 +85,8 @@ export const SPONSOR_PACKS: SponsorPack[] = [
 			"2 gold potions",
 			"2 material potions",
 		],
+		imageUrl:
+			"https://media.discordapp.net/attachments/1533512926474797126/1533571366744227890/Hero.png?ex=6a8dfa22&is=6a8ca8a2&hm=3bdc9a2de727401a2eb21b68af69e43a97c947f52992a9f795145ee22149d4a&=&format=webp&quality=lossless&width=2048&height=689",
 	},
 	{
 		id: "champions",
@@ -98,6 +108,8 @@ export const SPONSOR_PACKS: SponsorPack[] = [
 			"Custom Discord role",
 			"Rename an NPC",
 		],
+		imageUrl:
+			"https://media.discordapp.net/attachments/1533512926474797126/1533571380053016686/Champions.png?ex=6a8dfa25&is=6a8ca8a5&hm=7a76b17821c4c1aa210f71527b362300819a5443f13176506c086f1bf55fe92d&=&format=webp&quality=lossless&width=2048&height=698",
 	},
 ];
 

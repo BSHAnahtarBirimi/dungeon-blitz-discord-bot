@@ -38,7 +38,7 @@ import {
 import {
   packsCommand,
   packsBuyComponent,
-  packsShopComponent,
+  packsSelectComponent,
 } from "../src/commands/packs.js";
 
 const applicationId = process.env.DISCORD_APPLICATION_ID?.trim();
@@ -86,7 +86,7 @@ const commandModules: CommandModule[] = [
 const componentModules: ComponentModule[] = [
   initialPasswordButton,
   packsBuyComponent,
-  packsShopComponent,
+  packsSelectComponent,
 ];
 
 const modalModules: ModalModule[] = [
