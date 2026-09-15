@@ -56,6 +56,8 @@ type RawLinkedProfile = Document & {
 	isContributor?: boolean;
 	packUsedCents?: number;
 	packPurchases?: PackPurchase[];
+	bonusCreditCents?: number;
+	creditGrants?: CreditGrant[];
 };
 
 export type PackPurchase = {
@@ -63,6 +65,14 @@ export type PackPurchase = {
 	packName: string;
 	priceCents: number;
 	purchasedAtMs: number;
+};
+
+/** Audit entry for one admin-granted bonus credit. */
+export type CreditGrant = {
+	cents: number;
+	grantedByDiscordId: string;
+	grantedAtMs: number;
+	note?: string;
 };
 
 type ParsedSelector = {
@@ -488,6 +498,7 @@ export async function getPlayerProfile(selector: string): Promise<PlayerProfile 
 
 export type PackLedger = {
 	usedCents: number;
+	bonusCents: number;
 	purchases: PackPurchase[];
 };
 
@@ -512,18 +523,53 @@ function toPackPurchase(value: unknown): PackPurchase | null {
  */
 export async function getPackLedger(discordId: string): Promise<PackLedger> {
 	const normalized = discordId.trim();
-	if (!normalized) return { usedCents: 0, purchases: [] };
+	if (!normalized) return { usedCents: 0, bonusCents: 0, purchases: [] };
 	const profiles = await getLinkedProfileCollection();
 	const profile = await profiles.findOne(
 		{ $or: [{ _id: normalized }, { userId: normalized }] } as Filter<RawLinkedProfile>,
-		{ projection: { packUsedCents: 1, packPurchases: 1 } },
+		{ projection: { packUsedCents: 1, packPurchases: 1, bonusCreditCents: 1 } },
 	);
-	if (!profile) return { usedCents: 0, purchases: [] };
+	if (!profile) return { usedCents: 0, bonusCents: 0, purchases: [] };
 	const usedCents = normalizeBalance(profile.packUsedCents);
+	const bonusCents = normalizeBalance(profile.bonusCreditCents);
 	const purchases = (Array.isArray(profile.packPurchases) ? profile.packPurchases : [])
 		.map(toPackPurchase)
 		.filter((purchase): purchase is PackPurchase => purchase !== null);
-	return { usedCents, purchases };
+	return { usedCents, bonusCents, purchases };
+}
+
+/**
+ * Atomically adds admin-granted bonus credit to a linked player's profile.
+ * The grant is also appended to `creditGrants` for auditing. Returns false when
+ * no linked profile exists for the Discord ID.
+ */
+export async function grantBonusCredit(
+	discordId: string,
+	cents: number,
+	grantedByDiscordId: string,
+	note?: string,
+): Promise<boolean> {
+	if (!Number.isSafeInteger(cents) || cents <= 0) {
+		throw new Error("Bonus credit must be a positive whole number of cents");
+	}
+	const normalized = discordId.trim();
+	if (!normalized) return false;
+	const profiles = await getLinkedProfileCollection();
+	const grant: CreditGrant = {
+		cents,
+		grantedByDiscordId: grantedByDiscordId.trim(),
+		grantedAtMs: Date.now(),
+		...(note ? { note } : {}),
+	};
+	const updated = await profiles.findOneAndUpdate(
+		{ $or: [{ _id: normalized }, { userId: normalized }] } as Filter<RawLinkedProfile>,
+		{
+			$inc: { bonusCreditCents: cents },
+			// MongoDB's $push typing is overly strict on Document intersections.
+			$push: { creditGrants: grant },
+		} as never,
+	);
+	return updated !== null;
 }
 
 /**

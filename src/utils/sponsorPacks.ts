@@ -1,13 +1,135 @@
 import {
 	getPackLedger,
 	getPlayerProfile,
+	grantBonusCredit,
 	recordPackPurchase,
 	type PackPurchase,
 } from "./gameWallet.js";
+import {
+	applyPackRewardsToSave,
+	findDefaultGameSaveCharacter,
+	findGameUserIdForDiscord,
+	listGameSaveCharacters,
+	type GameSaveCharacterRef,
+} from "./gameRewards.js";
 import { getSponsorDonationInfo } from "./githubSponsors.js";
+
+export type { GameCharacterOption } from "./gameRewards.js";
 
 /** Discord role that unlocks the free Sponsor Pack claim. */
 export const SPONSOR_ROLE_ID = "1365618632415248444";
+
+/* ------------------------------------------------------------------
+ * Pack rewards
+ *
+ * Each pack carries a concrete `rewards` table that the shop rolls and
+ * writes straight into the buyer's game save, so nothing has to be
+ * delivered by hand any more.
+ * ------------------------------------------------------------------ */
+
+/** Consumable IDs as they appear in the game's save (`consumables[].consumableID`). */
+export type ConsumableId = "exp" | "gear" | "gold" | "material";
+
+/** A concrete game reward: written into the save document at purchase time. */
+export type PackReward =
+	| { kind: "mount"; mountId: number; label: string; exclusive: boolean }
+	| { kind: "dye"; dyeId: number; label: string; legendary: boolean }
+	| { kind: "lockbox"; lockboxId: number; count: number; label: string }
+	| { kind: "consumable"; consumableId: ConsumableId; count: number; label: string }
+	| { kind: "gold"; amount: number }
+	| { kind: "sigils"; amount: number };
+
+/** Reward pools the game maintains. Mount/dye IDs must match live game content. */
+export const NON_EXCLUSIVE_MOUNT_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+export const EXCLUSIVE_MOUNT_IDS = [81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91] as const;
+export const LEGENDARY_DYE_IDS = [4, 9, 11, 13, 19, 20, 22, 26, 27, 33] as const;
+
+const EXP_POTION_ID = 1;
+const GEAR_POTION_ID = 3;
+const GOLD_POTION_ID = 6;
+const MATERIAL_POTION_ID = 8;
+const TROVE_LOCKBOX_ID = 1;
+
+export const CONSUMABLE_ID_BY_KIND: Record<ConsumableId, number> = {
+	exp: EXP_POTION_ID,
+	gear: GEAR_POTION_ID,
+	gold: GOLD_POTION_ID,
+	material: MATERIAL_POTION_ID,
+};
+
+function pickRandom<T>(values: readonly T[]): T {
+	return values[Math.floor(Math.random() * values.length)];
+}
+
+function mountReward(mountId: number, exclusive: boolean): PackReward {
+	return { kind: "mount", mountId, exclusive, label: "Mount" };
+}
+
+function dyeReward(dyeId: number): PackReward {
+	return { kind: "dye", dyeId, legendary: true, label: "Legendary Dye" };
+}
+
+function lockboxReward(count: number): PackReward {
+	return { kind: "lockbox", lockboxId: TROVE_LOCKBOX_ID, count, label: "Trove Chests" };
+}
+
+function consumableReward(kind: ConsumableId, count: number): PackReward {
+	return { kind: "consumable", consumableId: kind, count, label: `${kind} potion` };
+}
+
+/** Builds the concrete reward list for a pack, rolling any random entries. */
+export function buildPackRewards(pack: Pick<SponsorPack, "id">): PackReward[] {
+	switch (pack.id) {
+		case "sponsor":
+			return [
+				mountReward(pickRandom(NON_EXCLUSIVE_MOUNT_IDS), false),
+				{ kind: "gold", amount: 10_000 },
+			];
+		case "supporter":
+			return [
+				lockboxReward(3),
+				dyeReward(pickRandom(LEGENDARY_DYE_IDS)),
+				{ kind: "gold", amount: 25_000 },
+			];
+		case "adventurer":
+			return [
+				lockboxReward(10),
+				mountReward(pickRandom(EXCLUSIVE_MOUNT_IDS), true),
+				{ kind: "sigils", amount: 250 },
+				dyeReward(pickRandom(LEGENDARY_DYE_IDS)),
+				consumableReward("exp", 2),
+			];
+		case "hero":
+			return [
+				lockboxReward(25),
+				mountReward(pickRandom(EXCLUSIVE_MOUNT_IDS), true),
+				mountReward(pickRandom(EXCLUSIVE_MOUNT_IDS), true),
+				mountReward(pickRandom(EXCLUSIVE_MOUNT_IDS), true),
+				{ kind: "sigils", amount: 750 },
+				dyeReward(pickRandom(LEGENDARY_DYE_IDS)),
+				dyeReward(pickRandom(LEGENDARY_DYE_IDS)),
+				{ kind: "gold", amount: 100_000 },
+				consumableReward("exp", 2),
+				consumableReward("gear", 2),
+				consumableReward("gold", 2),
+				consumableReward("material", 2),
+			];
+		case "champions":
+			return [
+				lockboxReward(50),
+				...EXCLUSIVE_MOUNT_IDS.map((mountId) => mountReward(mountId, true)),
+				{ kind: "sigils", amount: 750 },
+				...LEGENDARY_DYE_IDS.map((dyeId) => dyeReward(dyeId)),
+				{ kind: "gold", amount: 250_000 },
+				consumableReward("exp", 5),
+				consumableReward("gear", 5),
+				consumableReward("gold", 5),
+				consumableReward("material", 5),
+			];
+		default:
+			return [];
+	}
+}
 
 export type SponsorPack = {
 	id: string;
@@ -20,6 +142,19 @@ export type SponsorPack = {
 	imageUrl: string;
 	/** When set, only members with this Discord role can claim the pack. */
 	requiredRoleId?: string;
+};
+
+/** A pack reward together with the character that received it. */
+export type PackRewardDelivery = {
+	reward: PackReward;
+	characterName: string;
+};
+
+/** Delivery result for one pack purchase. */
+export type PackRewardDeliveryResult = {
+	status: "delivered" | "failed";
+	delivery: PackRewardDelivery;
+	error?: string;
 };
 
 // Prices mirror the community pack sheet; credit comes from what each sponsor has donated.
@@ -125,6 +260,8 @@ export type SponsorCredit = {
 	githubUsername: string;
 	isSponsor: boolean;
 	sponsoredCents: number | null;
+	/** Admin-granted bonus credit that is added on top of the donation total. */
+	bonusCents: number;
 	usedCents: number;
 	balanceCents: number | null;
 	purchases: PackPurchase[];
@@ -132,7 +269,8 @@ export type SponsorCredit = {
 
 /**
  * A player's spendable credit is the donation total GitHub reports for their linked
- * account, minus whatever they have already spent on packs.
+ * account plus any admin-granted bonus credit, minus whatever they have already
+ * spent on packs.
  */
 export async function getSponsorCredit(
 	discordId: string,
@@ -159,15 +297,59 @@ export async function getSponsorCredit(
 		githubUsername: profile.githubUsername,
 		isSponsor: profile.isSponsor === true,
 		sponsoredCents,
+		bonusCents: ledger.bonusCents,
 		usedCents: ledger.usedCents,
+		// Unknown donations only hide the GitHub-reported part; bonus credit is
+		// always spendable, so the balance stays computable when bonus > 0.
 		balanceCents:
-			sponsoredCents === null ? null : Math.max(0, sponsoredCents - ledger.usedCents),
+			sponsoredCents === null
+				? (ledger.bonusCents > 0 ? ledger.bonusCents - ledger.usedCents : null)
+				: Math.max(0, sponsoredCents + ledger.bonusCents - ledger.usedCents),
 		purchases: ledger.purchases,
 	};
 }
 
+/**
+ * Grants bonus spendable credit (in cents) to a player. This is how external
+ * donations that GitHub cannot see (PayPal, Ko-fi, …) become pack credit: the
+ * dollar amount is converted 1:1 to cents of credit on their linked profile.
+ */
+export async function addCreditsToPlayer(input: {
+	discordId: string;
+	/** Dollar amount to credit, e.g. 12.5 for $12.50. */
+	dollars: number;
+	grantedByDiscordId: string;
+	note?: string;
+}): Promise<
+	| { status: "ok"; cents: number; totalBonusCents: number }
+	| { status: "no-profile" }
+	| { status: "not-linked" }
+> {
+	const cents = Math.round(input.dollars * 100);
+	if (!Number.isFinite(input.dollars) || cents <= 0) {
+		throw new Error("Credit amount must be a positive dollar amount");
+	}
+
+	// The credit ledger lives on the linked profile, so a Discord account with
+	// no profile (or no linked GitHub) has nowhere to store the credit.
+	const profile = await getPlayerProfile(`profile:${input.discordId.trim()}`);
+	if (!profile?.discordUserId) return { status: "no-profile" };
+	if (!profile.githubUsername) return { status: "not-linked" };
+
+	const granted = await grantBonusCredit(
+		profile.discordUserId,
+		cents,
+		input.grantedByDiscordId,
+		input.note,
+	);
+	if (!granted) return { status: "no-profile" };
+
+	const ledger = await getPackLedger(profile.discordUserId);
+	return { status: "ok", cents, totalBonusCents: ledger.bonusCents };
+}
+
 export type PackPurchaseResult =
-	| { status: "ok"; pack: SponsorPack; credit: SponsorCredit }
+	| { status: "ok"; pack: SponsorPack; credit: SponsorCredit; deliveries: PackRewardDeliveryResult[] }
 	| { status: "no-profile" }
 	| { status: "not-sponsor" }
 	| { status: "credit-unknown" }
@@ -180,6 +362,7 @@ export async function purchaseSponsorPack(
 	discordId: string,
 	packId: string,
 	memberRoleIds: string[] = [],
+	targetCharacterName?: string,
 ): Promise<PackPurchaseResult> {
 	const pack = findSponsorPack(packId);
 	if (!pack) return { status: "no-profile" };
@@ -212,17 +395,21 @@ export async function purchaseSponsorPack(
 		);
 		if (!recorded) return { status: "conflict", pack };
 
+		const deliveries = await deliverPackRewards(discordId, pack, targetCharacterName);
 		const credit = await getSponsorCredit(discordId);
 		return {
 			status: "ok",
 			pack,
+			deliveries,
 			credit:
 				credit ?? {
 					githubUsername: profile.githubUsername ?? "",
 					isSponsor: profile.isSponsor === true,
 					sponsoredCents: null,
+					bonusCents: ledger.bonusCents,
 					usedCents: ledger.usedCents,
-					balanceCents: null,
+					balanceCents:
+						ledger.bonusCents > 0 ? ledger.bonusCents - ledger.usedCents : null,
 					purchases: [...ledger.purchases, purchase],
 				},
 		};
@@ -248,16 +435,59 @@ export async function purchaseSponsorPack(
 	);
 	if (!recorded) return { status: "conflict", pack };
 
+	const deliveries = await deliverPackRewards(discordId, pack, targetCharacterName);
 	const updated = await getSponsorCredit(discordId);
 	return {
 		status: "ok",
 		pack,
+		deliveries,
 		credit:
 			updated ??
 			{
 				...credit,
 				usedCents: credit.usedCents + pack.priceCents,
-				balanceCents: credit.balanceCents - pack.priceCents,
+				balanceCents: credit.balanceCents === null
+					? null
+					: Math.max(0, credit.balanceCents - pack.priceCents),
 			},
 	};
+}
+
+/**
+ * Rolls the pack's rewards and writes them into the buyer's game save. Every
+ * reward is attempted independently so one failure does not block the rest.
+ * When the buyer picked a target character, the whole pack goes there; the
+ * fallback is their most recently updated character.
+ */
+export async function deliverPackRewards(
+	discordId: string,
+	pack: SponsorPack,
+	targetCharacterName?: string,
+): Promise<PackRewardDeliveryResult[]> {
+	const rewards = buildPackRewards(pack);
+	if (rewards.length === 0) return [];
+
+	let character: GameSaveCharacterRef | null = null;
+	if (targetCharacterName) {
+		const userId = await findGameUserIdForDiscord(discordId);
+		if (userId !== null) {
+			const characters = await listGameSaveCharacters(discordId);
+			const match = characters.find(
+				(option) => option.name.toLowerCase() === targetCharacterName.trim().toLowerCase(),
+			);
+			if (match) character = { userId, characterName: match.name };
+		}
+	}
+	if (!character) {
+		character = await findDefaultGameSaveCharacter(discordId);
+	}
+	if (!character) {
+		return rewards.map((reward) => ({
+			status: "failed" as const,
+			delivery: { reward, characterName: targetCharacterName ?? "(no character found)" },
+			error: "No game save character found for your Discord account.",
+		}));
+	}
+
+	return applyPackRewardsToSave(character.userId, character.characterName, rewards);
 }

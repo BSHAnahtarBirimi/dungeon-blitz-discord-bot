@@ -90,16 +90,18 @@ export const profileCommand = {
         },
       ];
 
-      if (profile.discordUserId && profile.isSponsor) {
+      if (profile.discordUserId) {
         try {
           const credit = await getSponsorCredit(profile.discordUserId);
-          if (credit) {
+          if (credit && (credit.isSponsor || credit.bonusCents > 0)) {
+            const bonusPart =
+              credit.bonusCents > 0 ? ` • Bonus: ${formatUsd(credit.bonusCents)}` : "";
             fields.push({
               name: "Sponsor credit",
               value:
                 credit.balanceCents === null
-                  ? `**Balance left:** Unknown • **Used:** ${formatUsd(credit.usedCents)}`
-                  : `**Balance left:** ${formatUsd(credit.balanceCents)} • **Used:** ${formatUsd(credit.usedCents)} • Sponsored: ${formatUsd(credit.sponsoredCents ?? 0)}`,
+                  ? `**Balance left:** Unknown • **Used:** ${formatUsd(credit.usedCents)}${bonusPart}`
+                  : `**Balance left:** ${formatUsd(credit.balanceCents)} • **Used:** ${formatUsd(credit.usedCents)} • Sponsored: ${formatUsd(credit.sponsoredCents ?? 0)}${bonusPart}`,
             });
           }
         } catch (error) {
