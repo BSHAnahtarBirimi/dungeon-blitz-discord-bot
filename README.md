@@ -8,9 +8,12 @@ This Discord bot designed for the Dungeon Blitz: R—The Minesa Studios Discord 
 - `/account reset-password` opens an owner-scoped modal and replaces the linked game account's password hash.
 - `/account view` privately shows the linked account's Discord email, game user ID, and password setup state.
 - `/sponsor-info github_username` lets administrators inspect the visible GitHub sponsorship tier, status, and estimated total.
+- `/add-credits player dollars [note]` lets administrators add shop credit to a linked player, converting donated dollars 1:1 into spendable credit. It stacks on top of the player's GitHub-reported donation total, is audited on the player's profile, and can be spent in `/packs` like sponsor credit.
 - `/idols player operation amount` lets administrators atomically add or subtract Mammoth Idols. Player autocomplete displays the character's current Idols, Gold, and Dragon Keys.
 - `/profile player` lets administrators inspect a linked Discord/GitHub profile and the player's current wallet values across the current game saves and legacy wallet stores.
-- `/maintenance seconds` lets administrators start the in-game maintenance countdown and broadcasts the start time into every connected player's game chat.
+- `/add-credits` and `/maintenance` are administrator commands; they require the invoking member to hold Discord Administrator permissions.
+
+The `/maintenance` command requires matching `DISCORD_MAINTENANCE_API_SECRET` values in the bot and game-server environments, plus `GAME_SERVER_BASE_URL` in the bot deployment.
 
 The maintenance command requires matching `DISCORD_MAINTENANCE_API_SECRET` values in the bot and game-server environments, plus `GAME_SERVER_BASE_URL` in the bot deployment.
 

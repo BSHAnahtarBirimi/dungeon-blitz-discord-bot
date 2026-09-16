@@ -30,6 +30,10 @@ import {
   resetPasswordModal,
 } from "../src/commands/account.js";
 import { sponsorInfoCommand } from "../src/commands/sponsor-info.js";
+import {
+  addCreditsCommand,
+  handleAddCreditsAutocomplete,
+} from "../src/commands/add-credits.js";
 import { idolsCommand, handleIdolsAutocomplete } from "../src/commands/idols.js";
 import {
   profileCommand,
@@ -39,6 +43,7 @@ import {
   packsCommand,
   packsBuyComponent,
   packsSelectComponent,
+  packsCharacterSelectComponent,
 } from "../src/commands/packs.js";
 
 const applicationId = process.env.DISCORD_APPLICATION_ID?.trim();
@@ -78,6 +83,7 @@ const commandModules: CommandModule[] = [
   maintenanceCommand,
   accountCommand,
   sponsorInfoCommand,
+  addCreditsCommand,
   idolsCommand,
   profileCommand,
   packsCommand,
@@ -87,6 +93,7 @@ const componentModules: ComponentModule[] = [
   initialPasswordButton,
   packsBuyComponent,
   packsSelectComponent,
+  packsCharacterSelectComponent,
 ];
 
 const modalModules: ModalModule[] = [
@@ -95,6 +102,7 @@ const modalModules: ModalModule[] = [
 ];
 
 const autocompleteModules: AutocompleteModule[] = [
+  { command: "add-credits", handler: handleAddCreditsAutocomplete },
   { command: "idols", handler: handleIdolsAutocomplete },
   { command: "profile", handler: handleProfileAutocomplete },
 ];
