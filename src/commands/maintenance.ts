@@ -45,9 +45,10 @@ export const maintenanceCommand = {
         content: `Maintenance warning started for **${seconds.toLocaleString()} seconds** and announced to **${result.recipients.toLocaleString()}** connected player${result.recipients === 1 ? "" : "s"}.`,
       });
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       console.error("[maintenance] Broadcast failed:", error);
       return interaction.editReply({
-        content: "The game server could not start the maintenance warning.",
+        content: `The game server could not start the maintenance warning: ${reason}`,
       });
     }
   },

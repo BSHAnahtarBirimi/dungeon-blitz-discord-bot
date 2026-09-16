@@ -13,9 +13,7 @@ This Discord bot designed for the Dungeon Blitz: R—The Minesa Studios Discord 
 - `/profile player` lets administrators inspect a linked Discord/GitHub profile and the player's current wallet values across the current game saves and legacy wallet stores.
 - `/add-credits` and `/maintenance` are administrator commands; they require the invoking member to hold Discord Administrator permissions.
 
-The `/maintenance` command requires matching `DISCORD_MAINTENANCE_API_SECRET` values in the bot and game-server environments, plus `GAME_SERVER_BASE_URL` in the bot deployment.
-
-The maintenance command requires matching `DISCORD_MAINTENANCE_API_SECRET` values in the bot and game-server environments, plus `GAME_SERVER_BASE_URL` in the bot deployment.
+The `/maintenance` command requires matching `DISCORD_MAINTENANCE_API_SECRET` values in the bot and game-server environments. The game server defaults to `http://35.185.71.109`; override it with `GAME_SERVER_BASE_URL` in the bot deployment when the game moves. If the game server has not been given its admin secret, it answers `503 "Discord admin API is not configured"` and `/maintenance` relays that message to the administrator.
 
 ## Game wallet database
 
