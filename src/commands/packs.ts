@@ -27,13 +27,20 @@ import {
 	formatUsd,
 	purchaseSponsorPack,
 	findSponsorPack,
+	type PackRewardDeliveryResult,
 	type SponsorCredit,
 	type SponsorPack,
 } from "../utils/sponsorPacks.js";
+import {
+	formatRewardLine,
+	listGameSaveCharacters,
+	type GameCharacterOption,
+} from "../utils/gameRewards.js";
 import { getMemberRoleIds, interactionDiscordId } from "../utils/discordInteractions.js";
 
 const BUY_BUTTON_PREFIX = "packs:buy:";
 const PACK_SELECT_ID = "packs:view";
+const CHARACTER_SELECT_PREFIX = "packs:char:";
 
 // Components V2 messages require the IsComponentsV2 flag; shop views are ephemeral.
 const CONTAINER_FLAGS = MessageFlags.IsComponentsV2;
@@ -72,9 +79,40 @@ function buildPackSelectRow(defaultId?: string) {
 	return new ActionRowBuilder<MessageActionRowComponent>().addComponents(select);
 }
 
+function buildCharacterSelectRow(
+	pack: SponsorPack,
+	characters: GameCharacterOption[],
+	selectedCharacter?: string,
+): ActionRowBuilder<MessageActionRowComponent> | null {
+	if (characters.length === 0) return null;
+
+	const select = new StringSelectMenuBuilder()
+		.setCustomId(`${CHARACTER_SELECT_PREFIX}${pack.id}`)
+		.setPlaceholder("Deliver to character…")
+		.setMinValues(1)
+		.setMaxValues(1)
+		.setOptions(
+			characters.map((character) =>
+				new StringSelectMenuOptionBuilder()
+					.setLabel(character.name.slice(0, 100))
+					.setValue(character.name)
+					.setDescription(`Level ${character.level} ${character.class}`)
+					.setDefault(
+						selectedCharacter
+							? character.name === selectedCharacter
+							: character === characters[0],
+					),
+			),
+		);
+
+	return new ActionRowBuilder<MessageActionRowComponent>().addComponents(select);
+}
+
 function buildPackContainer(
 	pack: SponsorPack,
 	credit?: SponsorCredit | null,
+	characters: GameCharacterOption[] = [],
+	selectedCharacter?: string,
 ): ContainerBuilder {
 	const container = new ContainerBuilder().setAccentColor(pack.color);
 
@@ -121,9 +159,23 @@ function buildPackContainer(
 				new ButtonBuilder()
 					.setLabel(packButtonLabel(pack))
 					.setStyle(ButtonStyle.Primary)
-					.setCustomId(`${BUY_BUTTON_PREFIX}${pack.id}`),
+					.setCustomId(
+						selectedCharacter
+							? `${BUY_BUTTON_PREFIX}${pack.id}:${selectedCharacter}`
+							: `${BUY_BUTTON_PREFIX}${pack.id}`,
+					),
 			),
 	);
+
+	const characterRow = buildCharacterSelectRow(pack, characters, selectedCharacter);
+	if (characterRow) {
+		container.addComponent(
+			new TextDisplayBuilder().setContent(
+				"-# 🎒 Pick which character receives the pack rewards (defaults to your most recent character).",
+			),
+		);
+		container.addComponent(characterRow);
+	}
 
 	container.addComponent(
 		new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
@@ -153,9 +205,25 @@ function buildShopContainer(): ContainerBuilder {
 	return container;
 }
 
+function buildDeliverySummary(deliveries: PackRewardDeliveryResult[]): string[] {
+	if (deliveries.length === 0) return ["-# No rewards to deliver for this pack."];
+
+	const lines: string[] = ["**Delivered rewards**"];
+	for (const outcome of deliveries) {
+		const reward = formatRewardLine(outcome.delivery.reward);
+		lines.push(
+			outcome.status === "delivered"
+				? `- ✅ ${reward} → **${outcome.delivery.characterName}**`
+				: `- ⚠️ ${reward} — ${outcome.error ?? "delivery failed"}`,
+		);
+	}
+	return lines;
+}
+
 function buildPurchasedContainer(
 	pack: SponsorPack,
 	credit: SponsorCredit,
+	deliveries: PackRewardDeliveryResult[],
 ): ContainerBuilder {
 	const container = new ContainerBuilder().setAccentColor(pack.color);
 
@@ -180,7 +248,7 @@ function buildPurchasedContainer(
 			[
 				`**Price:** ${packPriceLabel(pack)}`,
 				`**Remaining balance:** ${credit.balanceCents === null ? "Unknown" : formatUsd(credit.balanceCents)}`,
-				`**Sponsored / Used:** ${credit.sponsoredCents === null ? "Unknown" : formatUsd(credit.sponsoredCents)} / ${formatUsd(credit.usedCents)}`,
+				`**Sponsored / Used:** ${credit.sponsoredCents === null ? "Unknown" : formatUsd(credit.sponsoredCents)}${credit.bonusCents > 0 ? ` + ${formatUsd(credit.bonusCents)} bonus` : ""} / ${formatUsd(credit.usedCents)}`,
 			].join("\n"),
 		),
 	);
@@ -190,9 +258,7 @@ function buildPurchasedContainer(
 	);
 
 	container.addComponent(
-		new TextDisplayBuilder().setContent(
-			"-# Pack contents are delivered to your game account by the team.",
-		),
+		new TextDisplayBuilder().setContent(buildDeliverySummary(deliveries).join("\n")),
 	);
 
 	// Select menu to keep browsing
@@ -205,9 +271,10 @@ async function respondWithPurchase(
 	discordId: string,
 	packId: string,
 	memberRoleIds: string[],
+	characterName: string | undefined,
 	editReply: (data: Record<string, unknown>) => Promise<unknown>,
 ) {
-	const result = await purchaseSponsorPack(discordId, packId, memberRoleIds);
+	const result = await purchaseSponsorPack(discordId, packId, memberRoleIds, characterName);
 	switch (result.status) {
 		case "no-profile":
 			return editReply({
@@ -250,9 +317,9 @@ async function respondWithPurchase(
 			});
 	}
 
-	const { pack, credit } = result;
+	const { pack, credit, deliveries } = result;
 	return editReply({
-		components: [buildPurchasedContainer(pack, credit)],
+		components: [buildPurchasedContainer(pack, credit, deliveries)],
 		flags: CONTAINER_EPHEMERAL_FLAGS,
 	});
 }
@@ -260,6 +327,7 @@ async function respondWithPurchase(
 async function handleBuy(
 	interaction: CommandInteraction | MessageComponentInteraction,
 	packId: string,
+	characterName?: string,
 ) {
 	const discordId = interactionDiscordId(interaction);
 	if (!discordId) {
@@ -275,6 +343,7 @@ async function handleBuy(
 			discordId,
 			packId,
 			getMemberRoleIds(interaction),
+			characterName,
 			(data) => interaction.editReply(data as never),
 		);
 	} catch (error) {
@@ -299,8 +368,11 @@ async function handlePackView(
 		});
 	}
 
+	const discordId = interactionDiscordId(interaction);
+	const characters = discordId ? await listGameSaveCharacters(discordId).catch(() => []) : [];
+
 	return interaction.update({
-		components: [buildPackContainer(pack)],
+		components: [buildPackContainer(pack, null, characters)],
 		flags: CONTAINER_FLAGS,
 	});
 }
@@ -325,7 +397,9 @@ export const packsCommand = {
 };
 
 export const packsBuyComponent = {
-	customId: BUY_BUTTON_PREFIX,
+	// Trailing "*" registers this as a prefix handler: buy buttons carry
+	// "packs:buy:<packId>" or "packs:buy:<packId>:<characterName>".
+	customId: `${BUY_BUTTON_PREFIX}*`,
 	handler: (interaction: MessageComponentInteraction) => {
 		if (!interaction.data.custom_id.startsWith(BUY_BUTTON_PREFIX)) {
 			return interaction.reply({
@@ -333,10 +407,12 @@ export const packsBuyComponent = {
 				flags: InteractionFlags.Ephemeral,
 			});
 		}
-		return handleBuy(
-			interaction,
-			interaction.data.custom_id.slice(BUY_BUTTON_PREFIX.length),
-		);
+		// Custom ID shape: "packs:buy:<packId>" or "packs:buy:<packId>:<characterName>".
+		const payload = interaction.data.custom_id.slice(BUY_BUTTON_PREFIX.length);
+		const separatorIndex = payload.indexOf(":");
+		const packId = separatorIndex < 0 ? payload : payload.slice(0, separatorIndex);
+		const characterName = separatorIndex < 0 ? undefined : payload.slice(separatorIndex + 1);
+		return handleBuy(interaction, packId, characterName);
 	},
 };
 
@@ -344,4 +420,33 @@ export const packsSelectComponent = {
 	customId: PACK_SELECT_ID,
 	handler: (interaction: MessageComponentInteraction) =>
 		handlePackView(interaction),
+};
+
+export const packsCharacterSelectComponent = {
+	customId: `${CHARACTER_SELECT_PREFIX}*`,
+	handler: async (interaction: MessageComponentInteraction) => {
+		const packId = interaction.data.custom_id.slice(CHARACTER_SELECT_PREFIX.length);
+		const pack = findSponsorPack(packId);
+		if (!pack) {
+			return interaction.reply({
+				content: "Invalid pack selection.",
+				flags: InteractionFlags.Ephemeral,
+			});
+		}
+		const selected = interaction.getStringValues()[0];
+		if (!selected) {
+			return interaction.reply({
+				content: "Select a character first.",
+				flags: InteractionFlags.Ephemeral,
+			});
+		}
+
+		const discordId = interactionDiscordId(interaction);
+		const characters = discordId ? await listGameSaveCharacters(discordId).catch(() => []) : [];
+
+		return interaction.update({
+			components: [buildPackContainer(pack, null, characters, selected)],
+			flags: CONTAINER_FLAGS,
+		});
+	},
 };
