@@ -1,3 +1,14 @@
+/**
+ * Live Dungeon Blitz game server. Used when GAME_SERVER_BASE_URL is not set
+ * so the admin commands keep working without per-deploy configuration.
+ */
+const DEFAULT_GAME_SERVER_BASE_URL = "http://35.185.71.109";
+
+function getGameServerBaseUrl(): string {
+	const configured = String(process.env.GAME_SERVER_BASE_URL ?? "").trim().replace(/\/+$/, "");
+	return configured || DEFAULT_GAME_SERVER_BASE_URL;
+}
+
 export type MaintenanceBroadcastResult = {
 	ok: true;
 	seconds: number;
@@ -20,10 +31,10 @@ async function requestGameServerAdmin<T extends { ok: true }>(
 	body: Record<string, unknown>,
 	action: string,
 ): Promise<T> {
-	const baseUrl = String(process.env.GAME_SERVER_BASE_URL ?? "").trim().replace(/\/$/, "");
+	const baseUrl = getGameServerBaseUrl();
 	const secret = String(process.env.DISCORD_MAINTENANCE_API_SECRET ?? "").trim();
-	if (!baseUrl || !secret) {
-		throw new Error("GAME_SERVER_BASE_URL and DISCORD_MAINTENANCE_API_SECRET are required");
+	if (!secret) {
+		throw new Error("DISCORD_MAINTENANCE_API_SECRET is required");
 	}
 
 	const response = await fetch(`${baseUrl}${path}`, {
